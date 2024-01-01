@@ -6,14 +6,17 @@ from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 import streamlit as st
 from st_multimodal_chatinput import multimodal_chatinput
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 
 st.title("Multimodal Chat w/ Gemini")
-st.image("gemini.jpeg")
+st.image("./multimodal/gemini.jpeg")
 
 
 # Set Google API key
-GOOGLE_API_KEY=os.environ['GOOGLE_API_KEY']
+GOOGLE_API_KEY=os.getenv('GOOGLE_API_KEY')
 genai.configure(api_key=GOOGLE_API_KEY)
 
 
