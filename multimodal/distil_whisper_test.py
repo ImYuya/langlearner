@@ -9,6 +9,21 @@ import time
 from datetime import datetime
 import os
 
+import google.generativeai as genai
+from langchain_core.messages import HumanMessage
+from langchain_google_genai import ChatGoogleGenerativeAI
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+# Set Google API key
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+genai.configure(api_key=GOOGLE_API_KEY)
+
+# make model
+gemini_model = genai.GenerativeModel('gemini-pro')
+gemini_vision_model = ChatGoogleGenerativeAI(model="gemini-pro-vision")
+
+
 # グローバル変数で実行状態を管理
 running = True
 
@@ -69,7 +84,7 @@ def transcribe_audio(q, pipe, output_buffer, max_buffer_time, max_buffer_size):
             last_output_time = current_time
         del audio_data  # 処理後にメモリから削除
 
-def output_transcription(output_buffer, filename):
+def output_transcription(output_buffer, filename, response_buffer):
     global running
     while running:
         try:
@@ -78,14 +93,58 @@ def output_transcription(output_buffer, filename):
             continue
 
         with open(filename, "a") as file:
-            file.write(text + "\n")
+            file.write('User: ' + text + "\n")
+        response_buffer.put(text)
+
+# process, store query + resp
+def call_llm_just_text(q):
+    response = gemini_model.generate_content(q)
+    return response
+
+# process, store query + resp
+def call_llm_with_img(q):
+    uploaded_images = q["images"] # list of base64 encodings of uploaded imgs
+    txt_inp = q["text"] # submitted text
+    msg = HumanMessage(
+      content=[
+        {
+          "type": "text",
+          "text": txt_inp,
+        },
+        {
+          "type": "image_url",
+          "image_url": uploaded_images[0]
+        },
+      ]
+    )
+    response = gemini_vision_model.invoke([msg])
+    return response
+
+def assistant_transcription(response_buffer, filename, print_queue):
+    global running
+    while running:
+        try:
+            text = response_buffer.get(timeout=1)  # 1秒間待ってからキューから取得
+        except queue.Empty:
+            continue
+
+        try:
+            # ここでAssistantの返答を作成する
+            response = call_llm_just_text(text)
+            print_queue.put(response)
+            with open(filename, "a") as file:
+                file.write('Assistant: ' + response.text + "\n")
+        except Exception as e:
+            print(f"Error in assistant_transcription: {e}")
+
 
 def main():
     global running
     # モデルとプロセッサの設定
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-    model_id = "distil-whisper/distil-small.en"
+    # model_id = "distil-whisper/distil-small.en"
+    model_id = "distil-whisper/distil-large-v2"
 
     # 指定されたmodel_idを使用して、事前学習済みの音声認識モデルをロードします
     model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True)
@@ -109,12 +168,14 @@ def main():
     device_index = None  # 適切なデバイスインデックスを設定するか、Noneのままにしてデフォルトを使用
 
     # 録音時間の設定
-    max_record_duration = 3  # 最大3秒
-    silence_duration = 0.7    # 無音と判断する期間（秒）
+    max_record_duration = 10  # 最大10秒
+    silence_duration = 2   # 無音と判断する期間（秒）
 
-    # 録音と文字起こしのキュー
+    # 録音、文字起こし、User出力のキュー
     q = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
     output_buffer = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
+    response_buffer = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
+    print_queue = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
 
     # バッファの設定
     max_buffer_time = 3  # バッファの内容を出力する時間間隔（秒）
@@ -137,38 +198,27 @@ def main():
     filename = os.path.join(uploads_directory, datetime.now().strftime("%Y-%m-%d_%H%M.txt"))
 
     # 録音スレッドの開始
-    # ここでは、新しいスレッドを作成しています。このスレッドは、音声の録音を担当します。
-    # 'target'パラメータには、スレッドが実行する関数（この場合は'record_audio'関数）を指定します。
-    # 'args'パラメータには、'target'で指定した関数に渡す引数をタプル形式で指定します。
-    # この例では、'q'（録音データを格納するキュー）、'max_record_duration'（最大録音時間）、
-    # 'silence_duration'（無音と判断する期間）、'device_index'（録音デバイスのインデックス）を引数として渡しています。
     record_thread = threading.Thread(target=record_audio, args=(q, max_record_duration, silence_duration, device_index))
     record_thread.start()
 
     # 文字起こしスレッドの開始
-    # 文字起こしスレッドの初期化
     transcription_threads = []
     # 指定された数のスレッドを作成
     for _ in range(num_transcription_threads):
-        # 各スレッドは、音声データを文字に変換する役割を持つ
-        # 'target'パラメータには、スレッドが実行する関数（この場合は'transcribe_audio'関数）を指定します。
-        # 'args'パラメータには、'target'で指定した関数に渡す引数をタプル形式で指定します。
-        # この例では、'q'（録音データを格納するキュー）、'pipe'（音声データを処理するパイプライン）、
-        # 'output_buffer'（文字起こし結果を格納するバッファ）、'max_buffer_time'（バッファの内容を出力する時間間隔）、
-        # 'max_buffer_size'（バッファの最大文字数）を引数として渡しています。
         thread = threading.Thread(target=transcribe_audio, args=(q, pipe, output_buffer, max_buffer_time, max_buffer_size))
         # スレッドの開始
         thread.start()
         # スレッドをリストに追加
         transcription_threads.append(thread)
 
-    # 出力スレッドの開始
-    # 出力スレッドの初期化と開始
-    # 'target'パラメータには、スレッドが実行する関数（この場合は'output_transcription'関数）を指定します。
-    # 'args'パラメータには、'target'で指定した関数に渡す引数をタプル形式で指定します。
-    # この例では、'output_buffer'（文字起こし結果を格納するバッファ）と'filename'（テキストファイルの名前）を引数として渡しています。
-    output_thread = threading.Thread(target=output_transcription, args=(output_buffer, filename))
+    # User出力スレッドの開始
+    output_thread = threading.Thread(target=output_transcription, args=(output_buffer, filename, response_buffer))
     output_thread.start()
+
+    # Assistant出力スレッドの開始
+    assistant_thread = threading.Thread(target=assistant_transcription, args=(response_buffer,filename, print_queue))
+    assistant_thread.start()
+
 
     try:
         while True:
@@ -183,5 +233,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
