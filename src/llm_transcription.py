@@ -267,13 +267,13 @@ def ask_llm(prompt, image_path=None, chatbot=[], responseCallbackForSpeech=None)
     global config
     config = init_config()
     if config.llm.model not in ["gemini", "openai"]:
-        print("Using ollama model")
+        # print("Using ollama model")
         chatbot = ollama(prompt, image_path=image_path, chatbot=chatbot)
     elif config.llm.model == "gemini":
-        print("Using gemini model")
+        # print("Using gemini model")
         chatbot = gemini(prompt, image_path=image_path, chatbot=chatbot)
     elif config.llm.model == "openai":
-        print("Using openai model")
+        # print("Using openai model")
         chatbot = openai(prompt, image_path=image_path, chatbot=chatbot)  # image_path should be URL
     return chatbot
 
@@ -285,6 +285,7 @@ if __name__ == "__main__":
     # chatbot is [[user_msg, bot_msg], [user_msg, bot_msg], ...]
 
     # paturn 1:  text (example: gemini-pro)
+    print("=====================================")
     chatbot = ask_llm(prompt="how to output csv from dataframe in python", chatbot=[])
     user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
     print(f"user: {user}")
@@ -296,6 +297,7 @@ if __name__ == "__main__":
     print(f"bot: {bot}")
 
     # paturn 2:  upload images (example: gemini-pro-vision + gemini-pro)
+    # print("=====================================")
     # chatbot = ask_llm(prompt="What is this image? Discribe the image in detail.", image_path="./temp/temp.jpg")
     # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
     # print(f"user: {user}")

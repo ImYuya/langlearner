@@ -8,21 +8,7 @@ import queue
 import time
 from datetime import datetime
 import os
-
-import google.generativeai as genai
-from langchain_core.messages import HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
-load_dotenv(override=True)
-
-# Set Google API key
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-genai.configure(api_key=GOOGLE_API_KEY)
-
-# make model
-gemini_model = genai.GenerativeModel('gemini-pro')
-gemini_vision_model = ChatGoogleGenerativeAI(model="gemini-pro-vision")
-
+from llm_transcription import ask_llm
 
 # グローバル変数で実行状態を管理
 running = True
@@ -96,30 +82,6 @@ def output_transcription(output_buffer, filename, response_buffer):
             file.write('User: ' + text + "\n")
         response_buffer.put(text)
 
-# process, store query + resp
-def call_llm_just_text(q):
-    response = gemini_model.generate_content(q)
-    return response
-
-# process, store query + resp
-def call_llm_with_img(q):
-    uploaded_images = q["images"] # list of base64 encodings of uploaded imgs
-    txt_inp = q["text"] # submitted text
-    msg = HumanMessage(
-      content=[
-        {
-          "type": "text",
-          "text": txt_inp,
-        },
-        {
-          "type": "image_url",
-          "image_url": uploaded_images[0]
-        },
-      ]
-    )
-    response = gemini_vision_model.invoke([msg])
-    return response
-
 def assistant_transcription(response_buffer, filename, print_queue):
     global running
     while running:
@@ -130,16 +92,17 @@ def assistant_transcription(response_buffer, filename, print_queue):
 
         try:
             # ここでAssistantの返答を作成する
-            response = call_llm_just_text(text)
-            print_queue.put(response)
+            # chatbot = ask_llm(text, image_path='./temp/temp.jpg')
+            chatbot = ask_llm(text, image_path=None)
+            # print(chatbot)
+            # print("=========================================")
+            print_queue.put(chatbot[-1][1]['text'])
             with open(filename, "a") as file:
-                file.write('Assistant: ' + response.text + "\n")
+                file.write('Assistant: ' + chatbot[-1][1]['text'] + "\n")
         except Exception as e:
             print(f"Error in assistant_transcription: {e}")
 
-
-def main():
-    global running
+def create_pipe_for_speech_recognition():
     # モデルとプロセッサの設定
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
@@ -163,6 +126,12 @@ def main():
         torch_dtype=torch_dtype,
         device=device,
     )
+
+    return pipe
+
+def main():
+    global running
+    pipe = create_pipe_for_speech_recognition()
 
     # デバイスの指定
     device_index = None  # 適切なデバイスインデックスを設定するか、Noneのままにしてデフォルトを使用
@@ -216,7 +185,7 @@ def main():
     output_thread.start()
 
     # Assistant出力スレッドの開始
-    assistant_thread = threading.Thread(target=assistant_transcription, args=(response_buffer,filename, print_queue))
+    assistant_thread = threading.Thread(target=assistant_transcription, args=(response_buffer, filename, print_queue))
     assistant_thread.start()
 
 
@@ -233,4 +202,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

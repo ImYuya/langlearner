@@ -7,12 +7,12 @@ whisperRecognition:
   model: "distil-whisper/distil-large-v2" # distil-whisper/distil-large-v2 or distil-whisper/distil-small.en or distil-whisper/distil-medium.en
 
 llm:
-  model: "openchat" # "openai" or "gemini" or <ollama model name>  (ex: "openchat" or "bakllava")
-  systemPrompt: > # for ollama model and openai model
+  model: "gemini" # "openai" or "gemini" or <ollama model name>  (ex: "openchat" or "bakllava")
+  systemPrompt: > # for ollama and openai model
     You are a wheater caster. 
     No matter what question you ask, you always answer it by relating it to the weather. 
     Answer in up to 3 sentences at most.
-  stream: false # for ollama model and openai model
+  stream: false # for ollama and openai model
   url: "http://localhost:11434/api/chat" # for ollama model
   timeout: 10 # for ollama model
 
