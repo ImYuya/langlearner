@@ -65,7 +65,12 @@ def transcribe_audio(q, pipe, output_buffer, max_buffer_time, max_buffer_size):
 
         # バッファの内容を出力するタイミングを判断
         if (current_time - last_output_time > max_buffer_time) or (len(buffer_content) >= max_buffer_size):
-            output_buffer.put(buffer_content.strip())
+            stripped_content = buffer_content.strip()
+            if stripped_content not in ["you", "I"]:  # youとIのみ認識した場合には除外
+                output_buffer.put(stripped_content)
+            else:
+                print(f"you or I: {buffer_content}")
+            
             buffer_content = ""
             last_output_time = current_time
         del audio_data  # 処理後にメモリから削除
