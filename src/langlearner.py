@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 import os
 from llm_transcription import ask_llm
+from speech_to_text import speech_to_text
 
 # グローバル変数で実行状態を管理
 running = True
@@ -101,9 +102,10 @@ def assistant_transcription(response_buffer, filename, print_queue):
             chatbot = ask_llm(text, image_path=None)
             # print(chatbot)
             # print("=========================================")
-            print_queue.put(chatbot[-1][1]['text'])
+            assistant_text = chatbot[-1][1]['text']
+            print_queue.put(assistant_text)
             with open(filename, "a") as file:
-                file.write('Assistant: ' + chatbot[-1][1]['text'] + "\n")
+                file.write('Assistant: ' + assistant_text + "\n")
         except Exception as e:
             print(f"Error in assistant_transcription: {e}")
 
@@ -197,6 +199,11 @@ def main():
     try:
         while True:
             time.sleep(0.1)
+            try:
+                assistant_text = print_queue.get(timeout=1)  # 1秒間待ってからキューから取得
+                speech_to_text(assistant_text)
+            except queue.Empty:
+                continue
     except KeyboardInterrupt:
         running = False
         record_thread.join()

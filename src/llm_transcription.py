@@ -10,6 +10,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
+from speech_to_text import speech_to_text
+
 INPUT_CONFIG_PATH = "./src/config.yaml"
 
 # Set Google API key
@@ -263,7 +265,7 @@ def openai(prompt, image_path, chatbot=[]):
 
     return chatbot
 
-def ask_llm(prompt, image_path=None, chatbot=[], responseCallbackForSpeech=None):
+def ask_llm(prompt, image_path=None, chatbot=[]):
     global config
     config = init_config()
     if config.llm.model not in ["gemini", "openai"]:
@@ -276,34 +278,34 @@ def ask_llm(prompt, image_path=None, chatbot=[], responseCallbackForSpeech=None)
         # print("Using openai model")
         chatbot = openai(prompt, image_path=image_path, chatbot=chatbot)  # image_path should be URL
     return chatbot
-
-def text_to_speech(text):
-    print("text: ", text)
-
     
 if __name__ == "__main__":
     # chatbot is [[user_msg, bot_msg], [user_msg, bot_msg], ...]
 
     # paturn 1:  text (example: gemini-pro)
-    print("=====================================")
-    chatbot = ask_llm(prompt="how to output csv from dataframe in python", chatbot=[])
-    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    print(f"user: {user}")
-    print(f"bot: {bot}")
-    print("=====================================")
-    chatbot = ask_llm(prompt="how to read it in python", chatbot=chatbot)
-    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    print(f"user: {user}")
-    print(f"bot: {bot}")
+    # print("=====================================")
+    # chatbot = ask_llm(prompt="how to output csv from dataframe in python", chatbot=[])
+    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    # print(f"user: {user}")
+    # print(f"bot: {bot}")
+    # speech_to_text(text=bot)
+    # print("=====================================")
+    # chatbot = ask_llm(prompt="how to read it in python", chatbot=chatbot)
+    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    # print(f"user: {user}")
+    # print(f"bot: {bot}")
+    # speech_to_text(text=bot)
 
     # paturn 2:  upload images (example: gemini-pro-vision + gemini-pro)
-    # print("=====================================")
-    # chatbot = ask_llm(prompt="What is this image? Discribe the image in detail.", image_path="./temp/temp.jpg")
-    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    # print(f"user: {user}")
-    # print(f"bot: {bot}")
-    # print("=====================================")
-    # chatbot = ask_llm(prompt="Please describe the image from a different perspective.", chatbot=chatbot)
-    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    # print(f"user: {user}")
-    # print(f"bot: {bot}")
+    print("=====================================")
+    chatbot = ask_llm(prompt="What is this image? Discribe the image in detail.", image_path="./temp/temp.jpg")
+    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    print(f"user: {user}")
+    print(f"bot: {bot}")
+    speech_to_text(text=bot)
+    print("=====================================")
+    chatbot = ask_llm(prompt="Please describe the image from a different perspective.", chatbot=chatbot)
+    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    print(f"user: {user}")
+    print(f"bot: {bot}")
+    speech_to_text(text=bot)
