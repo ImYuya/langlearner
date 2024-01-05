@@ -25,14 +25,14 @@ def contains_voice(data, threshold=0.15):
     """音声が含まれているかをチェックする。"""
     return np.max(np.abs(data)) >= threshold
 
-def record_audio(q_record, silence_duration, device_index):
+def record_audio(q_record, audio_duration, device_index):
     global running, in_dev
     with sd.InputStream(samplerate=16000, channels=1, callback=None, dtype='float32', device=device_index):
         silence_start_time = None
         audio_data = np.array([])
         while running:
-            # silence_duration秒ごとに録音
-            temp_data = sd.rec(int(silence_duration * 16000), samplerate=16000, channels=1)
+            # audio_duration秒ごとに録音
+            temp_data = sd.rec(int(audio_duration * 16000), samplerate=16000, channels=1)
             sd.wait()  # 録音が完了するまで待機
             temp_data = np.squeeze(temp_data)
 
@@ -45,9 +45,9 @@ def record_audio(q_record, silence_duration, device_index):
                 # 無音の開始時間を記録
                 if silence_start_time is None:
                     silence_start_time = time.time()
-                # 無音がmax_silence_durationを超えた場合、録音を終了
-                elif time.time() - silence_start_time > silence_duration:
-                    if len(audio_data) >= silence_duration * 16000:
+                # 無音がaudio_durationを超えた場合、録音を終了
+                elif time.time() - silence_start_time > audio_duration:
+                    if len(audio_data) >= audio_duration * 16000:
                         q_record.put(audio_data)  # 録音データをキューに追加
                         # Output the recorded data to a file for debugging
                         if in_dev:
@@ -163,7 +163,7 @@ def main():
     device_index = None  # 適切なデバイスインデックスを設定するか、Noneのままにしてデフォルトを使用
 
     # 録音時間の設定
-    silence_duration = 2  # 音声有無を判断する期間（秒）
+    audio_duration = 2  # 音声有無を判断する期間（秒）
 
     # 録音、文字起こし、Assistant出力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
@@ -181,7 +181,7 @@ def main():
     filename = create_chat_file()
 
     # 録音スレッドの開始
-    record_thread = threading.Thread(target=record_audio, args=(q_record, silence_duration, device_index))
+    record_thread = threading.Thread(target=record_audio, args=(q_record, audio_duration, device_index))
     record_thread.start()
 
     # 文字起こしスレッドの開始
