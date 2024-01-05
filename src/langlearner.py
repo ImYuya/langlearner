@@ -1,38 +1,47 @@
+import threading
+import queue
+import time
+from datetime import datetime, timezone, timedelta
+import os
+
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 import sounddevice as sd
 import numpy as np
-import sys
-import threading
-import queue
-import time
-from datetime import datetime
-import os
+from scipy.io.wavfile import write
+
 from llm_transcription import ask_llm
 from speech_to_text import speech_to_text
 
 # グローバル変数で実行状態を管理
 running = True
+in_dev = False
 
 # 利用可能なオーディオデバイスのリスト表示
 print("利用可能なオーディオデバイス:")
 print(sd.query_devices())
 
-def is_silent(data, threshold=0.01):
+def is_silent(data, threshold=0.05):
     """無音を検出する。"""
     return np.max(np.abs(data)) < threshold
 
-def contains_voice(data, threshold=0.02):
+def contains_voice(data, threshold=0.05):
     """音声が含まれているかをチェックする。"""
-    return np.max(np.abs(data)) > threshold
+    return np.max(np.abs(data)) >= threshold
 
 def record_audio(q_record, max_record_duration, silence_duration, device_index):
-    global running
+    global running, in_dev
     with sd.InputStream(samplerate=16000, channels=1, callback=None, dtype='float32', device=device_index):
         while running:
             audio_data = sd.rec(int(max_record_duration * 16000), samplerate=16000, channels=1)
             sd.wait()  # 録音が完了するまで待機
             audio_data = np.squeeze(audio_data)
+            now = datetime.now(tz=timezone(timedelta(hours=+9))).strftime("%Y-%m-%d_%H%M%S")
+
+            # 録音データをファイルに出力　※デバッグ用
+            if in_dev:
+                file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"raw_{now}.wav")
+                write(file_path, 16000, audio_data)
 
             # 録音データに音声が含まれていない場合はスキップ
             if not contains_voice(audio_data):
@@ -49,7 +58,7 @@ def record_audio(q_record, max_record_duration, silence_duration, device_index):
             del audio_data  # 処理後にメモリから削除
 
 def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename):
-    global running
+    global running, in_dev
     buffer_content = ""
     last_output_time = time.time()
 
@@ -66,18 +75,27 @@ def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_s
 
         # バッファの内容を出力するタイミングを判断
         if (current_time - last_output_time > max_buffer_time) or (len(buffer_content) >= max_buffer_size):
+            now = datetime.now(tz=timezone(timedelta(hours=+9))).strftime("%Y-%m-%d_%H%M%S")
             stripped_content = buffer_content.strip()
             if stripped_content not in ["you", "I"]:  # youとIのみ認識した場合には除外
                 q_transcribe.put(stripped_content)
                 with open(filename, "a") as file:
                     file.write('User: ' + text + "\n")
+                
+                # 録音データをファイルに出力　※デバッグ用
+                if in_dev:
+                    file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"transcribed_{now}.wav")
+                    write(file_path, 16000, audio_data)
             else:
                 print(f"you or I: {buffer_content}")
+                # 録音データをファイルに出力　※デバッグ用
+                if in_dev:
+                    file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"you_{now}.wav")
+                    write(file_path, 16000, audio_data)
             
             buffer_content = ""
             last_output_time = current_time
         del audio_data  # 処理後にメモリから削除
-
 
 def assistant_transcription(response_buffer, filename, q_assistant):
     global running
@@ -127,8 +145,24 @@ def create_pipe_for_speech_recognition():
 
     return pipe
 
+def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timezone(timedelta(hours=+9))).strftime('%Y-%m-%d_%H%M')}.txt"):
+    # 現在のディレクトリのパスを取得
+    current_directory = os.getcwd()
+
+    # folder_pathのパスを生成
+    directory_path = os.path.join(current_directory, folder_path)
+
+    # folder_pathが存在しない場合は再帰的に作成
+    os.makedirs(directory_path, exist_ok=True)
+
+    # テキストファイルの名前を生成（folder_path内）
+    file_path = os.path.join(directory_path, file_name)
+
+    return file_path
+
 def main():
-    global running
+    global running, in_dev
+    in_dev = True
     pipe = create_pipe_for_speech_recognition()
 
     # デバイスの指定
@@ -136,7 +170,7 @@ def main():
 
     # 録音時間の設定
     max_record_duration = 10  # 最大10秒
-    silence_duration = 2   # 無音と判断する期間（秒）
+    silence_duration = 8   # 無音と判断する期間（秒）
 
     # 録音、文字起こし、Assistant出力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
@@ -150,18 +184,8 @@ def main():
     # 並行処理数の最適化
     num_transcription_threads = 10  # 文字起こしスレッドの数を増やす
 
-    # 現在のディレクトリのパスを取得
-    current_directory = os.getcwd()
-
-    # 'uploads'フォルダのパスを生成
-    uploads_directory = os.path.join(current_directory, 'uploads')
-
-    # 'uploads'フォルダが存在しない場合は作成
-    if not os.path.exists(uploads_directory):
-        os.makedirs(uploads_directory)
-
-    # テキストファイルの名前を生成（'uploads'フォルダ内）
-    filename = os.path.join(uploads_directory, datetime.now().strftime("%Y-%m-%d_%H%M.txt"))
+    # ファイル名の設定
+    filename = create_chat_file()
 
     # 録音スレッドの開始
     record_thread = threading.Thread(target=record_audio, args=(q_record, max_record_duration, silence_duration, device_index))
