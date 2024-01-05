@@ -21,41 +21,45 @@ in_dev = False
 print("利用可能なオーディオデバイス:")
 print(sd.query_devices())
 
-def is_silent(data, threshold=0.05):
-    """無音を検出する。"""
-    return np.max(np.abs(data)) < threshold
-
-def contains_voice(data, threshold=0.05):
+def contains_voice(data, threshold=0.15):
     """音声が含まれているかをチェックする。"""
     return np.max(np.abs(data)) >= threshold
 
-def record_audio(q_record, max_record_duration, silence_duration, device_index):
+def record_audio(q_record, silence_duration, device_index):
     global running, in_dev
     with sd.InputStream(samplerate=16000, channels=1, callback=None, dtype='float32', device=device_index):
+        silence_start_time = None
+        audio_data = np.array([])
         while running:
-            audio_data = sd.rec(int(max_record_duration * 16000), samplerate=16000, channels=1)
+            # silence_duration秒ごとに録音
+            temp_data = sd.rec(int(silence_duration * 16000), samplerate=16000, channels=1)
             sd.wait()  # 録音が完了するまで待機
-            audio_data = np.squeeze(audio_data)
-            now = datetime.now(tz=timezone(timedelta(hours=+9))).strftime("%Y-%m-%d_%H%M%S")
+            temp_data = np.squeeze(temp_data)
 
-            # 録音データをファイルに出力　※デバッグ用
-            if in_dev:
-                file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"raw_{now}.wav")
-                write(file_path, 16000, audio_data)
+            # 録音データに音声が含まれている場合
+            if contains_voice(temp_data):
+                # 録音データを追加
+                audio_data = np.concatenate((audio_data, temp_data))
+                silence_start_time = None
+            else:
+                # 無音の開始時間を記録
+                if silence_start_time is None:
+                    silence_start_time = time.time()
+                # 無音がmax_silence_durationを超えた場合、録音を終了
+                elif time.time() - silence_start_time > silence_duration:
+                    if len(audio_data) >= silence_duration * 16000:
+                        q_record.put(audio_data)  # 録音データをキューに追加
+                        # Output the recorded data to a file for debugging
+                        if in_dev:
+                            # The audio_data contains both silence and voice data
+                            now = datetime.now(tz=timezone(timedelta(hours=+9))).strftime("%Y-%m-%d_%H%M%S")
+                            file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"audio_data_{now}.wav")
+                            # Convert the float32 array to int16 for proper audio output
+                            audio_data_int16 = (audio_data * 32767).astype(np.int16)
+                            write(file_path, 16000, audio_data_int16)
+                        audio_data = np.array([])  # 録音データをリセット
+                        silence_start_time = None
 
-            # 録音データに音声が含まれていない場合はスキップ
-            if not contains_voice(audio_data):
-                continue
-
-            # 無音を検出して録音を早期終了
-            for i in range(0, len(audio_data), int(16000 * silence_duration)):
-                window = audio_data[i:i + int(16000 * silence_duration)]
-                if is_silent(window):
-                    audio_data = audio_data[:i]
-                    break
-
-            q_record.put(audio_data)  # 録音データをキューに追加
-            del audio_data  # 処理後にメモリから削除
 
 def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename):
     global running, in_dev
@@ -75,23 +79,13 @@ def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_s
 
         # バッファの内容を出力するタイミングを判断
         if (current_time - last_output_time > max_buffer_time) or (len(buffer_content) >= max_buffer_size):
-            now = datetime.now(tz=timezone(timedelta(hours=+9))).strftime("%Y-%m-%d_%H%M%S")
             stripped_content = buffer_content.strip()
             if stripped_content not in ["you", "I"]:  # youとIのみ認識した場合には除外
                 q_transcribe.put(stripped_content)
                 with open(filename, "a") as file:
                     file.write('User: ' + text + "\n")
-                
-                # 録音データをファイルに出力　※デバッグ用
-                if in_dev:
-                    file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"transcribed_{now}.wav")
-                    write(file_path, 16000, audio_data)
             else:
                 print(f"you or I: {buffer_content}")
-                # 録音データをファイルに出力　※デバッグ用
-                if in_dev:
-                    file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"you_{now}.wav")
-                    write(file_path, 16000, audio_data)
             
             buffer_content = ""
             last_output_time = current_time
@@ -162,15 +156,14 @@ def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timez
 
 def main():
     global running, in_dev
-    in_dev = True
+    in_dev = True  # デバッグ用 (音声ファイル出力)
     pipe = create_pipe_for_speech_recognition()
 
     # デバイスの指定
     device_index = None  # 適切なデバイスインデックスを設定するか、Noneのままにしてデフォルトを使用
 
     # 録音時間の設定
-    max_record_duration = 10  # 最大10秒
-    silence_duration = 8   # 無音と判断する期間（秒）
+    silence_duration = 2  # 音声有無を判断する期間（秒）
 
     # 録音、文字起こし、Assistant出力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
@@ -188,7 +181,7 @@ def main():
     filename = create_chat_file()
 
     # 録音スレッドの開始
-    record_thread = threading.Thread(target=record_audio, args=(q_record, max_record_duration, silence_duration, device_index))
+    record_thread = threading.Thread(target=record_audio, args=(q_record, silence_duration, device_index))
     record_thread.start()
 
     # 文字起こしスレッドの開始
