@@ -26,7 +26,7 @@ def contains_voice(data, threshold=0.02):
     """音声が含まれているかをチェックする。"""
     return np.max(np.abs(data)) > threshold
 
-def record_audio(q, max_record_duration, silence_duration, device_index):
+def record_audio(q_record, max_record_duration, silence_duration, device_index):
     global running
     with sd.InputStream(samplerate=16000, channels=1, callback=None, dtype='float32', device=device_index):
         while running:
@@ -45,17 +45,17 @@ def record_audio(q, max_record_duration, silence_duration, device_index):
                     audio_data = audio_data[:i]
                     break
 
-            q.put(audio_data)  # 録音データをキューに追加
+            q_record.put(audio_data)  # 録音データをキューに追加
             del audio_data  # 処理後にメモリから削除
 
-def transcribe_audio(q, pipe, output_buffer, max_buffer_time, max_buffer_size):
+def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename):
     global running
     buffer_content = ""
     last_output_time = time.time()
 
     while running:
         try:
-            audio_data = q.get(timeout=1)  # 1秒間待ってからキューから取得
+            audio_data = q_record.get(timeout=1)  # 1秒間待ってからキューから取得
         except queue.Empty:
             continue
 
@@ -68,7 +68,9 @@ def transcribe_audio(q, pipe, output_buffer, max_buffer_time, max_buffer_size):
         if (current_time - last_output_time > max_buffer_time) or (len(buffer_content) >= max_buffer_size):
             stripped_content = buffer_content.strip()
             if stripped_content not in ["you", "I"]:  # youとIのみ認識した場合には除外
-                output_buffer.put(stripped_content)
+                q_transcribe.put(stripped_content)
+                with open(filename, "a") as file:
+                    file.write('User: ' + text + "\n")
             else:
                 print(f"you or I: {buffer_content}")
             
@@ -76,19 +78,8 @@ def transcribe_audio(q, pipe, output_buffer, max_buffer_time, max_buffer_size):
             last_output_time = current_time
         del audio_data  # 処理後にメモリから削除
 
-def output_transcription(output_buffer, filename, response_buffer):
-    global running
-    while running:
-        try:
-            text = output_buffer.get(timeout=1)  # 1秒間待ってからキューから取得
-        except queue.Empty:
-            continue
 
-        with open(filename, "a") as file:
-            file.write('User: ' + text + "\n")
-        response_buffer.put(text)
-
-def assistant_transcription(response_buffer, filename, print_queue):
+def assistant_transcription(response_buffer, filename, q_assistant):
     global running
     while running:
         try:
@@ -103,7 +94,7 @@ def assistant_transcription(response_buffer, filename, print_queue):
             # print(chatbot)
             # print("=========================================")
             assistant_text = chatbot[-1][1]['text']
-            print_queue.put(assistant_text)
+            q_assistant.put(assistant_text)
             with open(filename, "a") as file:
                 file.write('Assistant: ' + assistant_text + "\n")
         except Exception as e:
@@ -147,11 +138,10 @@ def main():
     max_record_duration = 10  # 最大10秒
     silence_duration = 2   # 無音と判断する期間（秒）
 
-    # 録音、文字起こし、User出力のキュー
-    q = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
-    output_buffer = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
-    response_buffer = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
-    print_queue = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
+    # 録音、文字起こし、Assistant出力のキューの設定
+    q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
+    q_transcribe = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
+    q_assistant = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
 
     # バッファの設定
     max_buffer_time = 3  # バッファの内容を出力する時間間隔（秒）
@@ -174,33 +164,28 @@ def main():
     filename = os.path.join(uploads_directory, datetime.now().strftime("%Y-%m-%d_%H%M.txt"))
 
     # 録音スレッドの開始
-    record_thread = threading.Thread(target=record_audio, args=(q, max_record_duration, silence_duration, device_index))
+    record_thread = threading.Thread(target=record_audio, args=(q_record, max_record_duration, silence_duration, device_index))
     record_thread.start()
 
     # 文字起こしスレッドの開始
     transcription_threads = []
     # 指定された数のスレッドを作成
     for _ in range(num_transcription_threads):
-        thread = threading.Thread(target=transcribe_audio, args=(q, pipe, output_buffer, max_buffer_time, max_buffer_size))
+        thread = threading.Thread(target=transcribe_audio, args=(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename))
         # スレッドの開始
         thread.start()
         # スレッドをリストに追加
         transcription_threads.append(thread)
 
-    # User出力スレッドの開始
-    output_thread = threading.Thread(target=output_transcription, args=(output_buffer, filename, response_buffer))
-    output_thread.start()
-
     # Assistant出力スレッドの開始
-    assistant_thread = threading.Thread(target=assistant_transcription, args=(response_buffer, filename, print_queue))
+    assistant_thread = threading.Thread(target=assistant_transcription, args=(q_transcribe, filename, q_assistant))
     assistant_thread.start()
-
 
     try:
         while True:
             time.sleep(0.1)
             try:
-                assistant_text = print_queue.get(timeout=1)  # 1秒間待ってからキューから取得
+                assistant_text = q_assistant.get(timeout=1)  # 1秒間待ってからキューから取得
                 speech_to_text(assistant_text)
             except queue.Empty:
                 continue
@@ -209,7 +194,7 @@ def main():
         record_thread.join()
         for t in transcription_threads:
             t.join()
-        output_thread.join()
+        q_transcribe.join()
         print("\nRecording and transcription stopped.")
 
 if __name__ == "__main__":
