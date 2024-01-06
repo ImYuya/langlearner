@@ -212,6 +212,7 @@ def main():
         for t in transcription_threads:
             t.join()
         q_transcribe.join()
+        assistant_thread.join()
         print("\nRecording and transcription stopped.")
 
 if __name__ == "__main__":
