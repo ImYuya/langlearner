@@ -39,6 +39,7 @@ dependencies = [
     "langchain_google_genai>=0.0.5",
     "ipykernel>=6.28.0",
     "scipy>=1.11.4",
+    "wavefile>=1.6.2",
 ]
 readme = "README.md"
 requires-python = ">= 3.9"

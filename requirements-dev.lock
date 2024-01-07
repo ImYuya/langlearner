@@ -300,6 +300,7 @@ tzlocal==5.2
 urllib3==2.1.0
 validators==0.22.0
 wave==0.0.2
+wavefile==1.6.2
 wcwidth==0.2.12
 yarl==1.9.4
 zipp==3.17.0

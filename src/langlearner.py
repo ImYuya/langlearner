@@ -8,7 +8,8 @@ import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 import sounddevice as sd
 import numpy as np
-from scipy.io.wavfile import write
+import pyaudio
+import wave
 
 from llm_transcription import ask_llm
 from speech_to_text import speech_to_text
@@ -17,49 +18,98 @@ from speech_to_text import speech_to_text
 running = True
 in_dev = False
 
+
+INPUT_FORMAT = pyaudio.paInt16
+INPUT_CHANNELS = 1
+INPUT_RATE = 16000
+INPUT_CHUNK = 1024
+INPUT_BLOCK = 1.5 * INPUT_RATE  # 無音判定用のブロックサイズ（秒数 * サンプリングレート）
+SILENCE_THRESHOLD = 0.2  # 無音判定の閾値
+
+
 # 利用可能なオーディオデバイスのリスト表示
 print("利用可能なオーディオデバイス:")
 print(sd.query_devices())
 
-def contains_voice(data, threshold=0.15):
-    """音声が含まれているかをチェックする。"""
-    return np.max(np.abs(data)) >= threshold
+def save_waveform_to_file(waveform: np.ndarray, file_path: str):
+    """波形データをWAVファイルとして保存する。"""
+    # PyAudioの設定に合わせて、16ビット整数に変換
+    waveform_int16 = np.int16(waveform * 32767)
+    
+    with wave.open(file_path, 'wb') as wf:
+        wf.setnchannels(INPUT_CHANNELS)
+        wf.setsampwidth(pyaudio.PyAudio().get_sample_size(INPUT_FORMAT))
+        wf.setframerate(INPUT_RATE)
+        wf.writeframes(waveform_int16.tobytes())
 
-def record_audio(q_record, audio_duration, device_index):
+
+def waveform_from_mic(q_record, device_index):
     global running, in_dev
-    with sd.InputStream(samplerate=16000, channels=1, callback=None, dtype='float32', device=device_index):
-        silence_start_time = None
-        audio_data = np.array([])
-        while running:
-            # audio_duration秒ごとに録音
-            temp_data = sd.rec(int(audio_duration * 16000), samplerate=16000, channels=1)
-            sd.wait()  # 録音が完了するまで待機
-            temp_data = np.squeeze(temp_data)
+    """マイクから波形を取得する。"""
+    audio = pyaudio.PyAudio()
 
-            # 録音データに音声が含まれている場合
-            if contains_voice(temp_data):
-                # 録音データを追加
-                audio_data = np.concatenate((audio_data, temp_data))
-                silence_start_time = None
-            else:
-                # 無音の開始時間を記録
-                if silence_start_time is None:
-                    silence_start_time = time.time()
-                # 無音がaudio_durationを超えた場合、録音を終了
-                elif time.time() - silence_start_time > audio_duration:
-                    if len(audio_data) >= audio_duration * 16000:
-                        q_record.put(audio_data)  # 録音データをキューに追加
-                        # Output the recorded data to a file for debugging
+    def callbackStream():
+        stream = audio.open(
+            format=INPUT_FORMAT,
+            channels=INPUT_CHANNELS,
+            rate=INPUT_RATE,
+            input=True,
+            frames_per_buffer=INPUT_CHUNK,
+            input_device_index=device_index
+        )
+        return stream
+
+    while running:
+        try:
+            block_index = 0
+            output_index = 0
+            frames_block = []
+            frames = []
+            SUM_INPUT_CHUNK = 0
+            stream = callbackStream()
+            
+            while True:
+                data = stream.read(INPUT_CHUNK)
+                SUM_INPUT_CHUNK += INPUT_CHUNK
+                frames_block.append(data)
+                frames.append(data)
+                if SUM_INPUT_CHUNK >= INPUT_BLOCK:
+                    waveform_block = np.frombuffer(b''.join(frames_block), np.int16).astype(np.float32) / 32768.0
+                    # 無音判定
+                    if np.max(np.abs(waveform_block)) < SILENCE_THRESHOLD:
+                        print('無音')
+                        waveform = np.frombuffer(b''.join(frames), np.int16).astype(np.float32) / 32768.0
+                        print('ストリームを停止します。')
+                        stream.stop_stream()
+                        stream.close()
+                        if block_index != 0:
+                            q_record.put(waveform)  # 録音データをキューに追加
+                            if in_dev:
+                                print('音声データを保存します。')
+                                file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"output_{output_index}.wav")
+                                save_waveform_to_file(waveform, file_path)
+                            output_index += 1
+                        block_index = 0
+                        frames = []
+                        frames_block = []
+                        SUM_INPUT_CHUNK = 0
+                        print('新規ストリームを開始します。')
+                        stream = callbackStream()
+                    else:
+                        print('音声あり')
                         if in_dev:
-                            # The audio_data contains both silence and voice data
-                            now = datetime.now(tz=timezone(timedelta(hours=+9))).strftime("%Y-%m-%d_%H%M%S")
-                            file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"audio_data_{now}.wav")
-                            # Convert the float32 array to int16 for proper audio output
-                            audio_data_int16 = (audio_data * 32767).astype(np.int16)
-                            write(file_path, 16000, audio_data_int16)
-                        audio_data = np.array([])  # 録音データをリセット
-                        silence_start_time = None
+                            file_path = create_chat_file(folder_path="./uploads/sample", file_name=f'output_block_{output_index}-{block_index}.wav')
+                            save_waveform_to_file(waveform_block, file_path)
+                        block_index += 1
+                        frames_block = []
+                        SUM_INPUT_CHUNK = 0
 
+        except KeyboardInterrupt:
+            running = False
+            print('キーボード割り込みを検知しました。')
+            print('ストリームを停止します。')
+            stream.stop_stream()
+            stream.close()
 
 def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename):
     global running, in_dev
@@ -162,8 +212,6 @@ def main():
     # デバイスの指定
     device_index = None  # 適切なデバイスインデックスを設定するか、Noneのままにしてデフォルトを使用
 
-    # 録音時間の設定
-    audio_duration = 2  # 音声有無を判断する期間（秒）
 
     # 録音、文字起こし、Assistant出力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
@@ -181,7 +229,7 @@ def main():
     filename = create_chat_file()
 
     # 録音スレッドの開始
-    record_thread = threading.Thread(target=record_audio, args=(q_record, audio_duration, device_index))
+    record_thread = threading.Thread(target=waveform_from_mic, args=(q_record, device_index))
     record_thread.start()
 
     # 文字起こしスレッドの開始
