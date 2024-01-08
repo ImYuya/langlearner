@@ -24,7 +24,7 @@ INPUT_CHANNELS = 1
 INPUT_RATE = 16000
 INPUT_CHUNK = 1024
 INPUT_BLOCK = 1.5 * INPUT_RATE  # 無音判定用のブロックサイズ（秒数 * サンプリングレート）
-SILENCE_THRESHOLD = 0.2  # 無音判定の閾値
+SILENCE_THRESHOLD = 0.15  # 無音判定の閾値
 
 
 # 利用可能なオーディオデバイスのリスト表示
@@ -67,7 +67,6 @@ def waveform_from_mic(q_record, device_index):
             frames = []
             SUM_INPUT_CHUNK = 0
             stream = callbackStream()
-            
             while True:
                 data = stream.read(INPUT_CHUNK)
                 SUM_INPUT_CHUNK += INPUT_CHUNK
@@ -103,13 +102,13 @@ def waveform_from_mic(q_record, device_index):
                         block_index += 1
                         frames_block = []
                         SUM_INPUT_CHUNK = 0
-
         except KeyboardInterrupt:
             running = False
             print('キーボード割り込みを検知しました。')
             print('ストリームを停止します。')
             stream.stop_stream()
             stream.close()
+            audio.terminate()
 
 def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename):
     global running, in_dev
@@ -206,12 +205,11 @@ def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timez
 
 def main():
     global running, in_dev
-    in_dev = True  # デバッグ用 (音声ファイル出力)
+    in_dev = False  # デバッグ用 (音声ファイル出力)
     pipe = create_pipe_for_speech_recognition()
 
     # デバイスの指定
     device_index = None  # 適切なデバイスインデックスを設定するか、Noneのままにしてデフォルトを使用
-
 
     # 録音、文字起こし、Assistant出力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
