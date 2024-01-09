@@ -14,11 +14,11 @@ import wave
 import config
 from llm_transcription import ask_llm
 from speech_to_text import speech_to_text
+from frame_caputure import capture_image, save_image
 
 # グローバル変数で実行状態を管理
 running = True
 dev_params = {'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}
-
 
 INPUT_FORMAT = pyaudio.paInt16
 INPUT_CHANNELS = 1
@@ -143,6 +143,7 @@ def input_user_text(q_transcribe, filename):
         q_transcribe.put(user_input)
         with open(filename, "a") as file:
             file.write('User: ' + user_input + "\n")
+        time.sleep(0.5)  # ここでsleepしないと、Assistantの返答が早すぎて、ユーザーの入力が間に合わない
 
 def assistant_transcription(q_transcribe, filename, q_assistant):
     global running
@@ -157,14 +158,16 @@ def assistant_transcription(q_transcribe, filename, q_assistant):
             # ここでAssistantの返答を作成する
             if first_transcription:
                 text = f"System: {config.LLM['systemPrompt']} \n User: {text}"
-            # chatbot = ask_llm(text, image_path='./temp/temp.jpg')
-            chatbot = ask_llm(text, image_path=None)
+            frame, temp_image_path, timestamp = capture_image()
+            chatbot = ask_llm(text, image_path=temp_image_path)
+            # chatbot = ask_llm(text, image_path=None)
             # print(chatbot)
             # print("=========================================")
             assistant_text = chatbot[-1][1]['text']
             q_assistant.put(assistant_text)
             with open(filename, "a") as file:
                 file.write('Assistant: ' + assistant_text + "\n")
+            save_image(frame, timestamp, assistant_text)
             first_transcription = False
         except Exception as e:
             print(f"Error in assistant_transcription: {e}")
@@ -174,7 +177,7 @@ def create_pipe_for_speech_recognition():
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     # model_id = "distil-whisper/distil-small.en"
-    model_id = config.WHISPER_RECOGNITION
+    model_id = config.WHISPER_RECOGNITION["model"]
 
     # 指定されたmodel_idを使用して、事前学習済みの音声認識モデルをロードします
     model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True)
@@ -214,7 +217,7 @@ def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timez
 
 def main():
     global running, dev_params
-    dev_params = {'input_user_text': True, 'output_record_wav': False, 'text_to_speech': False}  # デバッグ用
+    dev_params = {'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}  # デバッグ用
 
     # 録音、文字起こし、Assistant出力、文字入力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
