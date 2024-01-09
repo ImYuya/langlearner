@@ -1,66 +1,27 @@
 import os
 import requests
-import json
 import base64
-import yaml
 import mimetypes
 import PIL.Image
 import google.generativeai as genai
 from openai import OpenAI
-from dotenv import load_dotenv
-load_dotenv(override=True)
 
+
+import config
 from speech_to_text import speech_to_text
 
-INPUT_CONFIG_PATH = "./src/config.yaml"
-
 # Set Google API key
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-genai.configure(api_key=GOOGLE_API_KEY)
+genai.configure(api_key=config.GOOGLE_API_KEY)
 # make model
-gemini_model = genai.GenerativeModel('gemini-pro')
-gemini_model_vision = genai.GenerativeModel('gemini-pro-vision')
+gemini_model = genai.GenerativeModel(config.GOOGLE_MODEL)
+gemini_model_vision = genai.GenerativeModel(config.GOOGLE_MODEL_VISION)
 
 # Set OpenAI API key
-OPENAI_MODEL = "gpt-3.5-turbo"
-OPENAI_MODEL_VISION = "gpt-4-vision-preview"
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
 
 def image_to_base64(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
-
-def init_config():
-    class Inst:
-        """This class is used to create objects that can have attributes added dynamically. 
-        Without this class, we would not be able to create the config object and its sub-objects 
-        (like messages, conversation, etc.) and store the settings loaded from the YAML file."""
-        pass
-
-    with open(INPUT_CONFIG_PATH, encoding='utf-8') as data:
-        configYaml = yaml.safe_load(data)
-
-    config = Inst()
-    # config.messages = Inst()
-    # config.messages.loadingModel = configYaml["messages"]["loadingModel"]
-    # config.messages.pressSpace = configYaml["messages"]["pressSpace"]
-    # config.messages.noAudioInput = configYaml["messages"]["noAudioInput"]
-
-    config.conversation = Inst()
-    config.conversation.greeting = configYaml["conversation"]["greeting"]
-
-    config.llm = Inst()
-    config.llm.model = configYaml["llm"]["model"]
-    config.llm.url = configYaml["llm"]["url"]
-    config.llm.stream = configYaml["llm"]["stream"]
-    config.llm.systemPrompt = configYaml["llm"]["systemPrompt"]
-    config.llm.timeout = configYaml["llm"]["timeout"]
-
-    config.whisperRecognition = Inst()
-    config.whisperRecognition.modelPath = configYaml["whisperRecognition"]["model"]
-
-    return config
 
 def gemini(prompt, image_path, chatbot=[]):
     """
@@ -142,19 +103,19 @@ def ollama(prompt, image_path, chatbot=[]):
         
         context = []
         jsonParam = {
-            "model": config.llm.model,
-            "stream": config.llm.stream,
+            "model": config.LLM['model'],
+            "stream": config.LLM['stream'],
             "context": context,
-            "system": config.llm.systemPrompt,
+            "system": config.LLM['systemPrompt'],
             "messages": flatten(messages)
         }
         # print(f"{jsonParam=}")
         response = requests.post(
-            config.llm.url,
+            config.LLM['url'],
             json=jsonParam,
             headers={'Content-Type': 'application/json'},
-            stream=config.llm.stream,
-            timeout=config.llm.timeout
+            stream=config.LLM['stream'],
+            timeout=config.LLM['timeout']
         )  # Set the timeout value as per your requirement
         response.raise_for_status()  # raise exception if http calls returned an error
         
@@ -206,8 +167,8 @@ def openai(prompt, image_path, chatbot=[]):
             ])
         messages.append({'role': 'user', 'content': prompt})
     else:
-        if config.llm.systemPrompt:
-            messages.append({'role': 'system', 'content': config.llm.systemPrompt})
+        if config.LLM['systemPrompt']:
+            messages.append({'role': 'system', 'content': config.LLM['systemPrompt']})
         messages.append({'role': 'user', 'content': prompt})
     
     def generate_openai_response(messages):
@@ -216,9 +177,9 @@ def openai(prompt, image_path, chatbot=[]):
         
         # print(f"{messages=}")
         if isinstance(messages[-1]['content'], list) and 'type' in messages[-1]['content'][-1] and messages[-1]['content'][-1]['type'] == 'image_url':
-            model = OPENAI_MODEL_VISION
+            model = config.OPENAI_MODEL_VISION
         else:
-            model = OPENAI_MODEL
+            model = config.OPENAI_MODEL
         # print(f"{model=}")
         # print(f"{messages=}")
         # print(f"{flatten(messages)=}")
@@ -227,7 +188,7 @@ def openai(prompt, image_path, chatbot=[]):
             model=model,
             messages=flatten(messages),
             max_tokens=300,
-            # stream=config.llm.stream
+            # stream=config.LLM['stream']
         )
         # print(f"{response=}")
 
@@ -266,15 +227,13 @@ def openai(prompt, image_path, chatbot=[]):
     return chatbot
 
 def ask_llm(prompt, image_path=None, chatbot=[]):
-    global config
-    config = init_config()
-    if config.llm.model not in ["gemini", "openai"]:
+    if config.LLM['model'] not in ["gemini", "openai"]:
         # print("Using ollama model")
         chatbot = ollama(prompt, image_path=image_path, chatbot=chatbot)
-    elif config.llm.model == "gemini":
+    elif config.LLM['model'] == "gemini":
         # print("Using gemini model")
         chatbot = gemini(prompt, image_path=image_path, chatbot=chatbot)
-    elif config.llm.model == "openai":
+    elif config.LLM['model'] == "openai":
         # print("Using openai model")
         chatbot = openai(prompt, image_path=image_path, chatbot=chatbot)  # image_path should be URL
     return chatbot
@@ -283,29 +242,32 @@ if __name__ == "__main__":
     # chatbot is [[user_msg, bot_msg], [user_msg, bot_msg], ...]
 
     # paturn 1:  text (example: gemini-pro)
-    # print("=====================================")
-    # chatbot = ask_llm(prompt="how to output csv from dataframe in python", chatbot=[])
-    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    # print(f"user: {user}")
-    # print(f"bot: {bot}")
+    print("=====================================")
+    system_prompt_for_the_first = f"System: {config.LLM['systemPrompt']} \n User:"
+    chatbot = ask_llm(prompt=f"{system_prompt_for_the_first} how to output csv from dataframe in python", chatbot=[])
+    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    print(f"{system_prompt_for_the_first.replace('User:', '')}")
+    print(f"user: {user.replace(system_prompt_for_the_first, '')}")
+    print(f"bot: {bot}")
     # speech_to_text(text=bot)
-    # print("=====================================")
-    # chatbot = ask_llm(prompt="how to read it in python", chatbot=chatbot)
-    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    # print(f"user: {user}")
-    # print(f"bot: {bot}")
+    print("=====================================")
+    chatbot = ask_llm(prompt="how to read it in python", chatbot=chatbot)
+    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    print(f"user: {user}")
+    print(f"bot: {bot}")
     # speech_to_text(text=bot)
 
     # paturn 2:  upload images (example: gemini-pro-vision + gemini-pro)
-    print("=====================================")
-    chatbot = ask_llm(prompt="What is this image? Discribe the image in detail.", image_path="./temp/temp.jpg")
-    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    print(f"user: {user}")
-    print(f"bot: {bot}")
-    speech_to_text(text=bot)
-    print("=====================================")
-    chatbot = ask_llm(prompt="Please describe the image from a different perspective.", chatbot=chatbot)
-    user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
-    print(f"user: {user}")
-    print(f"bot: {bot}")
-    speech_to_text(text=bot)
+    # print("=====================================")
+    # system_prompt_for_the_first = f"System: {config.LLM['systemPrompt']} \n User: "
+    # chatbot = ask_llm(prompt=f"{system_prompt_for_the_first} What is this image? Discribe the image in detail.", image_path="./temp/temp.jpg")
+    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    # print(f"user: {user}")
+    # print(f"bot: {bot}")
+    # # speech_to_text(text=bot)
+    # print("=====================================")
+    # chatbot = ask_llm(prompt="Please describe the image from a different perspective.", chatbot=chatbot)
+    # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
+    # print(f"user: {user}")
+    # print(f"bot: {bot}")
+    # # speech_to_text(text=bot)

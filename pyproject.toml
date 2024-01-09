@@ -38,7 +38,6 @@ dependencies = [
     "accelerate>=0.25.0",
     "langchain_google_genai>=0.0.5",
     "ipykernel>=6.28.0",
-    "scipy>=1.11.4",
     "wavefile>=1.6.2",
     "pysndfx>=0.3.6",
     "librosa>=0.10.1",

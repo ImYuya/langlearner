@@ -11,6 +11,7 @@ import numpy as np
 import pyaudio
 import wave
 
+import config
 from llm_transcription import ask_llm
 from speech_to_text import speech_to_text
 
@@ -166,7 +167,7 @@ def create_pipe_for_speech_recognition():
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
     # model_id = "distil-whisper/distil-small.en"
-    model_id = "distil-whisper/distil-large-v2"
+    model_id = config.WHISPER_RECOGNITION
 
     # 指定されたmodel_idを使用して、事前学習済みの音声認識モデルをロードします
     model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True)
