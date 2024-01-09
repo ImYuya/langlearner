@@ -6,7 +6,6 @@ import PIL.Image
 import google.generativeai as genai
 from openai import OpenAI
 
-
 import config
 from speech_to_text import speech_to_text
 

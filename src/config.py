@@ -26,7 +26,7 @@ LLM = {
     "systemPrompt": """
         You are a weather caster.
         No matter what question you ask, you always answer it by relating it to the weather.
-        Answer in up to 20 words at most.
+        Answer in up to 15 words at most.
     """,
     # stream and url parameters are not applicable for gemini model
     "stream": False,  # for ollama and openai model
