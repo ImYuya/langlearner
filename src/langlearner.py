@@ -18,7 +18,7 @@ from frame_caputure import capture_image, save_image
 
 # グローバル変数で実行状態を管理
 running = True
-dev_params = {'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}
+dev_params = {'with_vision': False, 'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}
 
 INPUT_FORMAT = pyaudio.paInt16
 INPUT_CHANNELS = 1
@@ -64,7 +64,7 @@ def waveform_from_mic(q_record, device_index):
             SUM_INPUT_CHUNK = 0
             stream = callbackStream()
             while True:
-                data = stream.read(INPUT_CHUNK)
+                data = stream.read(INPUT_CHUNK, exception_on_overflow=False)
                 SUM_INPUT_CHUNK += INPUT_CHUNK
                 frames_block.append(data)
                 frames.append(data)
@@ -158,16 +158,24 @@ def assistant_transcription(q_transcribe, filename, q_assistant):
             # ここでAssistantの返答を作成する
             if first_transcription:
                 text = f"System: {config.LLM['systemPrompt']} \n User: {text}"
-            frame, temp_image_path, timestamp = capture_image()
-            chatbot = ask_llm(text, image_path=temp_image_path)
-            # chatbot = ask_llm(text, image_path=None)
+            if dev_params["with_vision"]:
+                frame, temp_image_path, timestamp = capture_image()
+                if config.LLM["model"] != "openai":
+                    chatbot = ask_llm(text, image_path=temp_image_path)
+                else:  # openaiの場合、image_pathはurlでなければならない
+                    # TODO:temp_image_pathをクラウドにアップロードして、urlを取得する
+                    print('imageパスのURL化が未実装のため使えません。')
+                    chatbot = ask_llm(text, image_path=temp_image_path)
+            else:
+                chatbot = ask_llm(text, image_path=None)
             # print(chatbot)
             # print("=========================================")
             assistant_text = chatbot[-1][1]['text']
             q_assistant.put(assistant_text)
             with open(filename, "a") as file:
                 file.write('Assistant: ' + assistant_text + "\n")
-            save_image(frame, timestamp, assistant_text)
+            if dev_params["with_vision"]:
+                save_image(frame, timestamp, assistant_text)
             first_transcription = False
         except Exception as e:
             print(f"Error in assistant_transcription: {e}")
@@ -214,10 +222,9 @@ def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timez
 
     return file_path
 
-
 def main():
     global running, dev_params
-    dev_params = {'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}  # デバッグ用
+    dev_params = {'with_vision': True, 'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}  # デバッグ用
 
     # 録音、文字起こし、Assistant出力、文字入力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
