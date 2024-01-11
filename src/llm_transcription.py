@@ -198,12 +198,13 @@ def openai(prompt, image_path, chatbot=[]):
     try:
         # Process image if file is provided
         if image_path is not None:
+            base64_image = image_to_base64(image_path)
             message = [
                 {
                     'role': 'user',
                     'content': [
                         {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": image_path}
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]
                 }
             ]

@@ -160,14 +160,9 @@ def assistant_transcription(q_transcribe, filename, q_assistant):
                 text = f"System: {config.LLM['systemPrompt']} \n User: {text}"
             if dev_params["with_vision"]:
                 frame, temp_image_path, timestamp = capture_image()
-                if config.LLM["model"] != "openai":
-                    chatbot = ask_llm(text, image_path=temp_image_path)
-                else:  # openaiの場合、image_pathはurlでなければならない
-                    # TODO:temp_image_pathをクラウドにアップロードして、urlを取得する
-                    print('imageパスのURL化が未実装のため使えません。')
-                    chatbot = ask_llm(text, image_path=temp_image_path)
+                chatbot = ask_llm(text, image_path=temp_image_path)
             else:
-                chatbot = ask_llm(text, image_path=None)
+                chatbot = ask_llm(text)
             # print(chatbot)
             # print("=========================================")
             assistant_text = chatbot[-1][1]['text']
