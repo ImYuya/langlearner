@@ -7,7 +7,7 @@ import google.generativeai as genai
 from openai import OpenAI
 
 import config
-from speech_to_text import speech_to_text
+from text_to_speech import text_to_speech
 
 # Set Google API key
 genai.configure(api_key=config.GOOGLE_API_KEY)
@@ -249,13 +249,13 @@ if __name__ == "__main__":
     print(f"{system_prompt_for_the_first.replace('User:', '')}")
     print(f"user: {user.replace(system_prompt_for_the_first, '')}")
     print(f"bot: {bot}")
-    # speech_to_text(text=bot)
+    # text_to_speech(text=bot)
     print("=====================================")
     chatbot = ask_llm(prompt="how to read it in python", chatbot=chatbot)
     user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
     print(f"user: {user}")
     print(f"bot: {bot}")
-    # speech_to_text(text=bot)
+    # text_to_speech(text=bot)
 
     # paturn 2:  upload images (example: gemini-pro-vision + gemini-pro)
     # print("=====================================")
@@ -264,10 +264,10 @@ if __name__ == "__main__":
     # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
     # print(f"user: {user}")
     # print(f"bot: {bot}")
-    # # speech_to_text(text=bot)
+    # # text_to_speech(text=bot)
     # print("=====================================")
     # chatbot = ask_llm(prompt="Please describe the image from a different perspective.", chatbot=chatbot)
     # user, bot = chatbot[-1][0]['text'], chatbot[-1][1]['text']
     # print(f"user: {user}")
     # print(f"bot: {bot}")
-    # # speech_to_text(text=bot)
+    # # text_to_speech(text=bot)

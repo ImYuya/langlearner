@@ -7,7 +7,7 @@ import pyttsx3
 voice_id = "com.apple.voice.compact.en-US.Samantha"
 # voice_id = "com.apple.eloquence.en-US.Reed"
 
-def speech_to_text(text, voice_id="com.apple.voice.compact.en-US.Samantha"):
+def text_to_speech(text, voice_id="com.apple.voice.compact.en-US.Samantha"):
     tts = pyttsx3.init("nsss")
     tts.setProperty('rate', 170)
     tts.setProperty('voice', voice_id)
