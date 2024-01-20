@@ -13,7 +13,7 @@ import wave
 
 import config
 from llm_transcription import ask_llm
-from text_to_speech import text_to_speech
+from text_to_speech import Speech, text_to_speech
 from frame_caputure import capture_image, save_image
 
 # グローバル変数で実行状態を管理
@@ -219,7 +219,7 @@ def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timez
 
 def main():
     global running, dev_params
-    dev_params = {'with_vision': True, 'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}  # デバッグ用
+    dev_params = {'with_vision': True, 'input_user_text': True, 'output_record_wav': False, 'text_to_speech': False}  # デバッグ用
 
     # 録音、文字起こし、Assistant出力、文字入力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
@@ -275,7 +275,7 @@ def main():
             try:
                 assistant_text = q_assistant.get(timeout=1)  # 1秒間待ってからキューから取得
                 if dev_params["text_to_speech"]:
-                    text_to_speech(assistant_text)
+                    text_to_speech(Speech(text=assistant_text))
             except queue.Empty:
                 continue
     except KeyboardInterrupt:

@@ -19,8 +19,12 @@ gemini_model_vision = genai.GenerativeModel(config.GOOGLE_MODEL_VISION)
 openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
 
 def image_to_base64(image_path):
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+    with PIL.Image.open(image_path) as img:
+        rgb_image = img.convert('RGB')
+        with open(image_path, "wb") as temp_file:
+            rgb_image.save(temp_file, format="JPEG")
+        with open(image_path, "rb") as temp_file:
+            return base64.b64encode(temp_file.read()).decode('utf-8')
 
 def gemini(prompt, image_path, chatbot=[]):
     """
@@ -51,7 +55,9 @@ def gemini(prompt, image_path, chatbot=[]):
     try:
         # Process image if file is provided
         if image_path is not None:
+            # image_path = './temp/kouji.jpg'
             with PIL.Image.open(image_path) as img:
+                img = img.convert("RGB")
                 message = [{'role': 'user', 'parts': [prompt, img]}]
                 response = gemini_model_vision.generate_content(message)
                 gemini_video_resp = response.text
