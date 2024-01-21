@@ -24,21 +24,27 @@ WHISPER_RECOGNITION = {
 }
 
 LLM = {
-    "model": "bakllava",  # "openai" or "gemini" or <ollama model name> (ex: "openchat" or "bakllava")
+    "model": "openchat",  # "openai" or "gemini" or <ollama model name> (ex: "openchat" or "bakllava")
     "systemPrompt": """
-        You are a weather caster.
-        No matter what question you ask, you always answer it by relating it to the weather.
-        Answer in up to 15 words at most.
+        You are a kindful assistant.
     """,
     # stream and url parameters are not applicable for gemini model
     "stream": False,  # for ollama and openai model
-    "url": "http://localhost:11434/api/chat",  # for ollama model
+    # "url": "http://localhost:11434/api/chat",  # for ollama model
+    "url": f"{os.getenv('NGROK_URL')}/api/chat",  # for ollama model
     "timeout": 20,  # for ollama model
 }
 
 FRAMES_DIR = "./frames"
 FRAME_TEMP_DIR = "./temp"
 FRAME_TEMP_FILE_NAME = "temp.jpg"
+
+DEV_PARAMS = {
+    'with_vision': False,
+    'input_user_text': False,
+    'output_record_wav': False,
+    'text_to_speech': True
+}
 
 CONVERSATION = {
     "greeting": "Hi, how can I help you?"

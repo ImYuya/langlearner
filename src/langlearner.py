@@ -18,7 +18,6 @@ from frame_caputure import capture_image, save_image
 
 # グローバル変数で実行状態を管理
 running = True
-dev_params = {'with_vision': False, 'input_user_text': False, 'output_record_wav': False, 'text_to_speech': True}
 
 INPUT_FORMAT = pyaudio.paInt16
 INPUT_CHANNELS = 1
@@ -32,15 +31,16 @@ def save_waveform_to_file(waveform: np.ndarray, file_path: str):
     """波形データをWAVファイルとして保存する。"""
     # PyAudioの設定に合わせて、16ビット整数に変換
     waveform_int16 = np.int16(waveform * 32767)
-    
-    with wave.open(file_path, 'wb') as wf:
+
+    with wave.open(file_path, "wb") as wf:
         wf.setnchannels(INPUT_CHANNELS)
         wf.setsampwidth(pyaudio.PyAudio().get_sample_size(INPUT_FORMAT))
         wf.setframerate(INPUT_RATE)
         wf.writeframes(waveform_int16.tobytes())
 
+
 def waveform_from_mic(q_record, device_index):
-    global running, dev_params
+    global running
     """マイクから波形を取得する。"""
     audio = pyaudio.PyAudio()
 
@@ -51,7 +51,7 @@ def waveform_from_mic(q_record, device_index):
             rate=INPUT_RATE,
             input=True,
             frames_per_buffer=INPUT_CHUNK,
-            input_device_index=device_index
+            input_device_index=device_index,
         )
         return stream
 
@@ -69,45 +69,62 @@ def waveform_from_mic(q_record, device_index):
                 frames_block.append(data)
                 frames.append(data)
                 if SUM_INPUT_CHUNK >= INPUT_BLOCK:
-                    waveform_block = np.frombuffer(b''.join(frames_block), np.int16).astype(np.float32) / 32768.0
+                    waveform_block = (
+                        np.frombuffer(b"".join(frames_block), np.int16).astype(
+                            np.float32
+                        )
+                        / 32768.0
+                    )
                     # 無音判定
                     if np.max(np.abs(waveform_block)) < SILENCE_THRESHOLD:
-                        print('無音')
-                        waveform = np.frombuffer(b''.join(frames), np.int16).astype(np.float32) / 32768.0
-                        print('ストリームを停止します。')
+                        print("無音")
+                        waveform = (
+                            np.frombuffer(b"".join(frames), np.int16).astype(np.float32)
+                            / 32768.0
+                        )
+                        print("ストリームを停止します。")
                         stream.stop_stream()
                         stream.close()
                         if block_index != 0:
                             q_record.put(waveform)  # 録音データをキューに追加
-                            if dev_params["output_record_wav"]:
-                                print('音声データを保存します。')
-                                file_path = create_chat_file(folder_path="./uploads/sample", file_name=f"output_{output_index}.wav")
+                            if config.DEV_PARAMS["output_record_wav"]:
+                                print("音声データを保存します。")
+                                file_path = create_chat_file(
+                                    folder_path="./uploads/sample",
+                                    file_name=f"output_{output_index}.wav",
+                                )
                                 save_waveform_to_file(waveform, file_path)
                             output_index += 1
                         block_index = 0
                         frames = []
                         frames_block = []
                         SUM_INPUT_CHUNK = 0
-                        print('新規ストリームを開始します。')
+                        print("新規ストリームを開始します。")
                         stream = callbackStream()
                     else:
-                        print('音声あり')
-                        if dev_params["output_record_wav"]:
-                            file_path = create_chat_file(folder_path="./uploads/sample", file_name=f'output_block_{output_index}-{block_index}.wav')
+                        print("音声あり")
+                        if config.DEV_PARAMS["output_record_wav"]:
+                            file_path = create_chat_file(
+                                folder_path="./uploads/sample",
+                                file_name=f"output_block_{output_index}-{block_index}.wav",
+                            )
                             save_waveform_to_file(waveform_block, file_path)
                         block_index += 1
                         frames_block = []
                         SUM_INPUT_CHUNK = 0
         except KeyboardInterrupt:
             running = False
-            print('キーボード割り込みを検知しました。')
-            print('ストリームを停止します。')
+            print("キーボード割り込みを検知しました。")
+            print("ストリームを停止します。")
             stream.stop_stream()
             stream.close()
             audio.terminate()
 
-def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename):
-    global running, dev_params
+
+def transcribe_audio(
+    q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename
+):
+    global running
     buffer_content = ""
     last_output_time = time.time()
 
@@ -123,18 +140,21 @@ def transcribe_audio(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_s
         current_time = time.time()
 
         # バッファの内容を出力するタイミングを判断
-        if (current_time - last_output_time > max_buffer_time) or (len(buffer_content) >= max_buffer_size):
+        if (current_time - last_output_time > max_buffer_time) or (
+            len(buffer_content) >= max_buffer_size
+        ):
             stripped_content = buffer_content.strip()
             if stripped_content not in ["you", "I"]:  # youとIのみ認識した場合には除外
                 q_transcribe.put(stripped_content)
                 with open(filename, "a") as file:
-                    file.write('User: ' + text + "\n")
+                    file.write("User: " + text + "\n")
             else:
                 print(f"you or I: {buffer_content}")
-            
+
             buffer_content = ""
             last_output_time = current_time
         del audio_data  # 処理後にメモリから削除
+
 
 def input_user_text(q_transcribe, filename):
     global running
@@ -142,8 +162,9 @@ def input_user_text(q_transcribe, filename):
         user_input = input("User Input for debug: ")
         q_transcribe.put(user_input)
         with open(filename, "a") as file:
-            file.write('User: ' + user_input + "\n")
+            file.write("User: " + user_input + "\n")
         time.sleep(0.5)  # ここでsleepしないと、Assistantの返答が早すぎて、ユーザーの入力が間に合わない
+
 
 def assistant_transcription(q_transcribe, filename, q_assistant):
     global running
@@ -158,22 +179,23 @@ def assistant_transcription(q_transcribe, filename, q_assistant):
             # ここでAssistantの返答を作成する
             if first_transcription:
                 text = f"System: {config.LLM['systemPrompt']} \n User: {text}"
-            if dev_params["with_vision"]:
+            if config.DEV_PARAMS["with_vision"]:
                 frame, temp_image_path, timestamp = capture_image()
                 chatbot = ask_llm(text, image_path=temp_image_path)
             else:
                 chatbot = ask_llm(text)
             # print(chatbot)
             # print("=========================================")
-            assistant_text = chatbot[-1][1]['text']
+            assistant_text = chatbot[-1][1]["text"]
             q_assistant.put(assistant_text)
             with open(filename, "a") as file:
-                file.write('Assistant: ' + assistant_text + "\n")
-            if dev_params["with_vision"]:
+                file.write("Assistant: " + assistant_text + "\n")
+            if config.DEV_PARAMS["with_vision"]:
                 save_image(frame, timestamp, assistant_text)
             first_transcription = False
         except Exception as e:
             print(f"Error in assistant_transcription: {e}")
+
 
 def create_pipe_for_speech_recognition():
     # モデルとプロセッサの設定
@@ -183,7 +205,9 @@ def create_pipe_for_speech_recognition():
     model_id = config.WHISPER_RECOGNITION["model"]
 
     # 指定されたmodel_idを使用して、事前学習済みの音声認識モデルをロードします
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True)
+    model = AutoModelForSpeechSeq2Seq.from_pretrained(
+        model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
+    )
     # モデルを指定されたデバイス（CPUまたはGPU）に移動します。モデルの計算はこのデバイス上で行われます。
     model.to(device)
     # 指定されたmodel_idを使用して、事前学習済みのプロセッサをロードします。プロセッサは、音声データをモデルが理解できる形式に変換するために使用されます。
@@ -202,7 +226,11 @@ def create_pipe_for_speech_recognition():
 
     return pipe
 
-def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timezone(timedelta(hours=+9))).strftime('%Y-%m-%d_%H%M')}.txt"):
+
+def create_chat_file(
+    folder_path="./uploads",
+    file_name=f"{datetime.now(tz=timezone(timedelta(hours=+9))).strftime('%Y-%m-%d_%H%M')}.txt",
+):
     # 現在のディレクトリのパスを取得
     current_directory = os.getcwd()
 
@@ -217,9 +245,9 @@ def create_chat_file(folder_path="./uploads", file_name=f"{datetime.now(tz=timez
 
     return file_path
 
-def main():
-    global running, dev_params
-    dev_params = {'with_vision': True, 'input_user_text': True, 'output_record_wav': False, 'text_to_speech': False}  # デバッグ用
+
+def langlearner():
+    global running
 
     # 録音、文字起こし、Assistant出力、文字入力のキューの設定
     q_record = queue.Queue(maxsize=10)  # キューのサイズ制限を設定
@@ -229,7 +257,7 @@ def main():
     # ファイル名の設定
     filename = create_chat_file()
 
-    if not dev_params["input_user_text"]:
+    if not config.DEV_PARAMS["input_user_text"]:
         # 利用可能なオーディオデバイスのリスト表示
         print("利用可能なオーディオデバイス:")
         print(sd.query_devices())
@@ -247,26 +275,42 @@ def main():
         num_transcription_threads = 10  # 文字起こしスレッドの数を増やす
 
         # 録音スレッドの開始
-        record_thread = threading.Thread(target=waveform_from_mic, args=(q_record, device_index))
+        record_thread = threading.Thread(
+            target=waveform_from_mic, args=(q_record, device_index)
+        )
         record_thread.start()
 
         # 文字起こしスレッドの開始
         transcription_threads = []
         # 指定された数のスレッドを作成
         for _ in range(num_transcription_threads):
-            thread = threading.Thread(target=transcribe_audio, args=(q_record, pipe, q_transcribe, max_buffer_time, max_buffer_size, filename))
+            thread = threading.Thread(
+                target=transcribe_audio,
+                args=(
+                    q_record,
+                    pipe,
+                    q_transcribe,
+                    max_buffer_time,
+                    max_buffer_size,
+                    filename,
+                ),
+            )
             # スレッドの開始
             thread.start()
             # スレッドをリストに追加
             transcription_threads.append(thread)
-    
+
     else:  # 【デバッグ用】ユーザーpromptを文字入力
         # 文字入力用スレッド作成
-        input_text_thread = threading.Thread(target=input_user_text, args=(q_transcribe, filename))
+        input_text_thread = threading.Thread(
+            target=input_user_text, args=(q_transcribe, filename)
+        )
         input_text_thread.start()
 
     # Assistant出力スレッドの開始
-    assistant_thread = threading.Thread(target=assistant_transcription, args=(q_transcribe, filename, q_assistant))
+    assistant_thread = threading.Thread(
+        target=assistant_transcription, args=(q_transcribe, filename, q_assistant)
+    )
     assistant_thread.start()
 
     try:
@@ -274,22 +318,31 @@ def main():
             time.sleep(0.1)
             try:
                 assistant_text = q_assistant.get(timeout=1)  # 1秒間待ってからキューから取得
-                if dev_params["text_to_speech"]:
+                if config.DEV_PARAMS["text_to_speech"]:
                     text_to_speech(Speech(text=assistant_text))
             except queue.Empty:
                 continue
     except KeyboardInterrupt:
         running = False
-        if hasattr(record_thread, 'join') and isinstance(record_thread, threading.Thread):  # スレッドが存在し、スレッドである場合
+        if hasattr(record_thread, "join") and isinstance(
+            record_thread, threading.Thread
+        ):  # スレッドが存在し、スレッドである場合
             record_thread.join()
         for t in transcription_threads:
-            if hasattr(t, 'join') and isinstance(t, threading.Thread):  # スレッドが存在し、スレッドである場合
+            if hasattr(t, "join") and isinstance(
+                t, threading.Thread
+            ):  # スレッドが存在し、スレッドである場合
                 t.join()
-        if hasattr(assistant_thread, 'join') and isinstance(assistant_thread, threading.Thread):  # スレッドが存在し、スレッドである場合
+        if hasattr(assistant_thread, "join") and isinstance(
+            assistant_thread, threading.Thread
+        ):  # スレッドが存在し、スレッドである場合
             assistant_thread.join()
-        if hasattr(input_text_thread, 'join') and isinstance(input_text_thread, threading.Thread): # スレッドが存在し、スレッドである場合
+        if hasattr(input_text_thread, "join") and isinstance(
+            input_text_thread, threading.Thread
+        ):  # スレッドが存在し、スレッドである場合
             input_text_thread.join()
         print("\nRecording and transcription stopped.")
 
+
 if __name__ == "__main__":
-    main()
+    langlearner()
